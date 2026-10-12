@@ -1,0 +1,38 @@
+name: Windows build and components
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Obtain pinned Microsoft .NET 4.0 reference assemblies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .tools | Out-Null
+          Invoke-WebRequest -Uri https://api.nuget.org/v3-flatcontainer/microsoft.netframework.referenceassemblies.net40/1.0.3/microsoft.netframework.referenceassemblies.net40.1.0.3.nupkg -OutFile .tools/net40.zip
+          Expand-Archive -LiteralPath .tools/net40.zip -DestinationPath .tools/net40
+          $referencePath = Join-Path $PWD '.tools/net40/build/.NETFramework/v4.0'
+          if (-not (Test-Path (Join-Path $referencePath 'mscorlib.dll'))) { throw 'Reference assembly package layout changed.' }
+          "TORP_NET40_REFS=$referencePath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Compile, test and package against .NET 4.0
+        shell: powershell
+        run: ./scripts/package.ps1 -StrictNet40
+      - name: Smoke-test packaged entrypoint
+        shell: powershell
+        run: ./scripts/smoke.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: torp-windows-build
+          path: |
+            dist/*
+            artifacts/test-results.txt
+            artifacts/smoke-results.txt
+            artifacts/compatibility.txt
+            artifacts/tests/run-*/torp-*.png
